@@ -208,14 +208,14 @@ class LoadMoreRequest(BaseModel):
 
 class JobAnalysis(BaseModel):
     company_name: Optional[str] = None
-    job_title: str
-    industry: str
-    seniority_level: str
-    key_skills: List[str]
-    technical_skills: List[str]
-    soft_skills: List[str]
-    job_type: str
-    domain: str
+    job_title: str = "Professional"
+    industry: str = "General"
+    seniority_level: str = "mid"
+    key_skills: List[str] = []
+    technical_skills: List[str] = []
+    soft_skills: List[str] = []
+    job_type: str = "general"
+    domain: str = "business"
 
 class GenerateQuestionsResponse(BaseModel):
     technical: List[InterviewQuestion]
