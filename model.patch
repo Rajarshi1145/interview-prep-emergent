@@ -1,0 +1,69 @@
+diff --git a/backend/server.py b/backend/server.py
+index e6ca489..43574fc 100644
+--- a/backend/server.py
++++ b/backend/server.py
+@@ -295,6 +295,64 @@ def extract_company_and_role(text: str) -> tuple:
+     return company, role
+ 
+ 
++async def analyze_job_description(job_description: str) -> dict:
++    """
++    Use Gemini to intelligently analyze job description and extract key info.
++    """
++    try:
++        chat = LlmChat(
++            api_key=GEMINI_API_KEY,
++            session_id=f"analyze-{uuid.uuid4()}",
++            system_message="You are an expert at analyzing job descriptions."
++        ).with_model("gemini", "gemini-2.5-flash")
++        
++        prompt = f"""Analyze this job description and extract key information.
++
++Job Description:
++{job_description}
++
++Return ONLY a valid JSON object (no markdown, no code blocks):
++{{
++    "company_name": "Company name if mentioned, or null",
++    "job_title": "The job title/role",
++    "industry": "Industry sector (tech, finance, healthcare, entertainment, retail, etc.)",
++    "seniority_level": "junior, mid, senior, lead, or executive",
++    "key_skills": ["skill1", "skill2", "skill3"],
++    "job_type": "engineering, product, design, data, marketing, operations, etc.",
++    "search_terms": ["term1", "term2", "term3"]
++}}
++
++For search_terms, provide 3 specific terms that would be most useful for finding real interview questions for this role. Be specific - include company name if available, role type, and key technical areas."""
++
++        response = await chat.send_message(UserMessage(text=prompt))
++        
++        content = response.strip()
++        if content.startswith("```"):
++            content = content.split("\n", 1)[1]
++            if content.endswith("```"):
++                content = content.rsplit("```", 1)[0]
++            content = content.strip()
++        
++        # Find JSON object
++        json_match = re.search(r'\{.*\}', content, re.DOTALL)
++        if json_match:
++            content = json_match.group()
++        
++        return json.loads(content, strict=False)
++        
++    except Exception as e:
++        logger.error(f"Job analysis error: {e}")
++        return {
++            "company_name": None,
++            "job_title": "Software Engineer",
++            "industry": "technology",
++            "seniority_level": "mid",
++            "key_skills": [],
++            "job_type": "engineering",
++            "search_terms": ["software engineer interview questions"]
++        }
++
++
+ # Routes
+ @api_router.get("/")
+ async def root():
