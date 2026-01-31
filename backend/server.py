@@ -203,8 +203,19 @@ Respond ONLY with a valid JSON object (no markdown, no code blocks):
                 content = content.rsplit("```", 1)[0]
             content = content.strip()
         
+        # Try to find JSON object in response
+        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if json_match:
+            content = json_match.group()
+        
         # Use strict=False to handle control characters
-        return json.loads(content, strict=False)
+        try:
+            return json.loads(content, strict=False)
+        except json.JSONDecodeError:
+            # Try to repair common JSON issues
+            # Remove trailing commas before closing brackets
+            content = re.sub(r',(\s*[\}\]])', r'\1', content)
+            return json.loads(content, strict=False)
         
     except Exception as e:
         logger.error(f"AI generation error: {e}")
