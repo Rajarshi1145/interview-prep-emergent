@@ -402,27 +402,27 @@ async def extract_text_base64(image_base64: str = Form(...)):
 
 @api_router.post("/generate-questions", response_model=GenerateQuestionsResponse)
 async def generate_questions(request: GenerateQuestionsRequest):
-    """Generate interview questions from job description with web search for real questions."""
+    """Generate interview questions from job description with intelligent analysis."""
     
     try:
-        # Extract company and role from job description if not provided
-        company_name = request.company_name
-        job_title = None
+        # Step 1: Analyze job description to extract key info
+        job_analysis = await analyze_job_description(request.job_description)
         
-        if not company_name:
-            extracted_company, extracted_role = extract_company_and_role(request.job_description)
-            company_name = extracted_company
-            job_title = extracted_role
+        company_name = job_analysis.get("company_name")
+        job_title = job_analysis.get("job_title", "Software Engineer")
+        search_terms = job_analysis.get("search_terms", [])
         
-        # Generate AI questions
+        logger.info(f"Job Analysis: company={company_name}, title={job_title}, terms={search_terms}")
+        
+        # Step 2: Generate AI questions based on full analysis
         ai_questions = await generate_ai_questions(request.job_description, company_name)
         
-        # Search for real questions from the web if we have company info
+        # Step 3: Search for real questions using extracted info
         web_questions = []
-        if company_name:
-            search_role = job_title or "Software Engineer"  # Default role if not detected
-            raw_web_questions = await search_real_interview_questions(company_name, search_role)
-            
+        
+        # Search using company + role if available
+        if company_name and job_title:
+            raw_web_questions = await search_real_interview_questions(company_name, job_title)
             for q in raw_web_questions:
                 web_questions.append(InterviewQuestion(
                     question=q.get("question", ""),
@@ -433,13 +433,27 @@ async def generate_questions(request: GenerateQuestionsRequest):
                     source_url=q.get("source", "Web Search"),
                     company=company_name
                 ))
+        elif job_title:
+            # No company, just search by role
+            raw_web_questions = await search_real_interview_questions("top tech companies", job_title)
+            for q in raw_web_questions:
+                web_questions.append(InterviewQuestion(
+                    question=q.get("question", ""),
+                    answer=q.get("answer", ""),
+                    category=q.get("category", "general"),
+                    job_description=request.job_description,
+                    source="web_search",
+                    source_url=q.get("source", "Web Search"),
+                    company=None
+                ))
         
         # Convert AI questions to InterviewQuestion objects
         result = {
             "technical": [],
             "behavioral": [],
             "situational": [],
-            "web_sourced": web_questions
+            "web_sourced": web_questions,
+            "job_analysis": JobAnalysis(**job_analysis) if job_analysis else None
         }
         
         for category in ["technical", "behavioral", "situational"]:
