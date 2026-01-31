@@ -53,13 +53,22 @@ class InterviewQuestion(BaseModel):
 
 class GenerateQuestionsRequest(BaseModel):
     job_description: str
+
+class JobAnalysis(BaseModel):
     company_name: Optional[str] = None
+    job_title: str
+    industry: str
+    seniority_level: str
+    key_skills: List[str]
+    job_type: str
+    search_terms: List[str]
 
 class GenerateQuestionsResponse(BaseModel):
     technical: List[InterviewQuestion]
     behavioral: List[InterviewQuestion]
     situational: List[InterviewQuestion]
     web_sourced: List[InterviewQuestion]  # Real questions from web search
+    job_analysis: Optional[JobAnalysis] = None  # Extracted job info
 
 class FavoriteQuestion(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
