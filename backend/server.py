@@ -140,6 +140,9 @@ Find at least 6-8 real questions if available. If you cannot find specific quest
         if json_match:
             content = json_match.group()
         
+        # Clean control characters that might break JSON parsing
+        content = re.sub(r'[\x00-\x1f\x7f-\x9f]', ' ', content)
+        
         questions = json.loads(content)
         return questions if isinstance(questions, list) else []
         
