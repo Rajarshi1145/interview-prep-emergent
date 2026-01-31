@@ -604,7 +604,17 @@ async def generate_questions(request: GenerateQuestionsRequest):
             behavioral=[to_question(q, "behavioral") for q in behavioral],
             situational=[to_question(q, "situational") for q in situational],
             company_specific=[to_question(q, "company_specific", "web_search") for q in company_questions],
-            job_analysis=JobAnalysis(**job_analysis)
+            job_analysis=JobAnalysis(
+                company_name=job_analysis.get("company_name"),
+                job_title=job_analysis.get("job_title") or "Professional",
+                industry=job_analysis.get("industry") or "General",
+                seniority_level=job_analysis.get("seniority_level") or "mid",
+                key_skills=job_analysis.get("key_skills") or [],
+                technical_skills=job_analysis.get("technical_skills") or [],
+                soft_skills=job_analysis.get("soft_skills") or [],
+                job_type=job_analysis.get("job_type") or "general",
+                domain=job_analysis.get("domain") or "business"
+            )
         )
         
     except Exception as e:
