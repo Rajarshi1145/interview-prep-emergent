@@ -160,10 +160,10 @@ Examples of GOOD questions:
 
 def get_domain_pattern(domain: str, job_type: str) -> dict:
     """Get the appropriate question pattern for a domain."""
-    domain_lower = domain.lower()
-    job_lower = job_type.lower()
+    domain_lower = (domain or "").lower()
+    job_lower = (job_type or "").lower()
     
-    if any(x in domain_lower or x in job_lower for x in ['software', 'developer', 'engineer', 'programming', 'it', 'data', 'devops', 'cloud']):
+    if any(x in domain_lower or x in job_lower for x in ['software', 'developer', 'engineer', 'programming', 'it', 'data', 'devops', 'cloud', 'frontend', 'backend', 'fullstack']):
         return DOMAIN_PATTERNS["software"]
     elif any(x in domain_lower or x in job_lower for x in ['mechanical', 'electrical', 'civil', 'chemical', 'aerospace', 'manufacturing']):
         return DOMAIN_PATTERNS["engineering"]
