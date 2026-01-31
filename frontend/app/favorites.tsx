@@ -22,6 +22,9 @@ interface FavoriteQuestion {
   answer: string;
   category: string;
   job_description: string;
+  source?: string;
+  source_url?: string;
+  company?: string;
   created_at: string;
 }
 
@@ -116,13 +119,13 @@ export default function FavoritesScreen() {
   const getCategoryColor = (category: string) => {
     switch (category) {
       case 'technical':
-        return '#4CAF50';
+        return '#6c63ff';
       case 'behavioral':
         return '#FF9800';
       case 'situational':
         return '#2196F3';
       default:
-        return '#6c63ff';
+        return '#4CAF50';
     }
   };
 
@@ -196,25 +199,33 @@ export default function FavoritesScreen() {
             {favorites.map((fav) => (
               <View key={fav.id} style={styles.favoriteCard}>
                 <View style={styles.cardHeader}>
-                  <View
-                    style={[
-                      styles.categoryBadge,
-                      { backgroundColor: getCategoryColor(fav.category) + '20' },
-                    ]}
-                  >
-                    <Ionicons
-                      name={getCategoryIcon(fav.category) as any}
-                      size={14}
-                      color={getCategoryColor(fav.category)}
-                    />
-                    <Text
+                  <View style={styles.badgesContainer}>
+                    <View
                       style={[
-                        styles.categoryText,
-                        { color: getCategoryColor(fav.category) },
+                        styles.categoryBadge,
+                        { backgroundColor: getCategoryColor(fav.category) + '20' },
                       ]}
                     >
-                      {fav.category.charAt(0).toUpperCase() + fav.category.slice(1)}
-                    </Text>
+                      <Ionicons
+                        name={getCategoryIcon(fav.category) as any}
+                        size={14}
+                        color={getCategoryColor(fav.category)}
+                      />
+                      <Text
+                        style={[
+                          styles.categoryText,
+                          { color: getCategoryColor(fav.category) },
+                        ]}
+                      >
+                        {fav.category.charAt(0).toUpperCase() + fav.category.slice(1)}
+                      </Text>
+                    </View>
+                    {fav.source === 'web_search' && (
+                      <View style={styles.webBadge}>
+                        <Ionicons name="globe" size={12} color="#4CAF50" />
+                        <Text style={styles.webBadgeText}>Verified</Text>
+                      </View>
+                    )}
                   </View>
                   <TouchableOpacity
                     style={styles.deleteButton}
@@ -229,7 +240,21 @@ export default function FavoritesScreen() {
                   </TouchableOpacity>
                 </View>
 
+                {fav.company && (
+                  <View style={styles.companyTag}>
+                    <Ionicons name="business" size={12} color="#888" />
+                    <Text style={styles.companyText}>{fav.company}</Text>
+                  </View>
+                )}
+
                 <Text style={styles.questionText}>{fav.question}</Text>
+
+                {fav.source === 'web_search' && fav.source_url && (
+                  <View style={styles.sourceUrlContainer}>
+                    <Ionicons name="link" size={12} color="#4CAF50" />
+                    <Text style={styles.sourceUrlText}>{fav.source_url}</Text>
+                  </View>
+                )}
 
                 {practiceMode ? (
                   <TouchableOpacity
@@ -249,17 +274,12 @@ export default function FavoritesScreen() {
 
                 {(!practiceMode || revealedAnswers.has(fav.id)) && (
                   <View style={styles.answerContainer}>
-                    <Text style={styles.answerLabel}>Sample Answer:</Text>
+                    <Text style={styles.answerLabel}>
+                      {fav.source === 'web_search' ? 'Suggested Approach:' : 'Sample Answer:'}
+                    </Text>
                     <Text style={styles.answerText}>{fav.answer}</Text>
                   </View>
                 )}
-
-                <View style={styles.jobDescContainer}>
-                  <Ionicons name="briefcase-outline" size={14} color="#666" />
-                  <Text style={styles.jobDescText} numberOfLines={1}>
-                    {fav.job_description.substring(0, 50)}...
-                  </Text>
-                </View>
               </View>
             ))}
           </View>
@@ -376,6 +396,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 12,
   },
+  badgesContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   categoryBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -388,8 +413,32 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  webBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(76, 175, 80, 0.15)',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+  },
+  webBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#4CAF50',
+  },
   deleteButton: {
     padding: 8,
+  },
+  companyTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+  },
+  companyText: {
+    fontSize: 13,
+    color: '#888',
   },
   questionText: {
     fontSize: 17,
@@ -397,6 +446,16 @@ const styles = StyleSheet.create({
     color: '#fff',
     lineHeight: 24,
     marginBottom: 12,
+  },
+  sourceUrlContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 12,
+  },
+  sourceUrlText: {
+    fontSize: 12,
+    color: '#4CAF50',
   },
   revealButton: {
     flexDirection: 'row',
@@ -432,19 +491,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#ccc',
     lineHeight: 22,
-  },
-  jobDescContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#2d2d44',
-  },
-  jobDescText: {
-    fontSize: 13,
-    color: '#666',
-    flex: 1,
   },
 });

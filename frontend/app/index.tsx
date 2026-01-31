@@ -10,9 +10,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import axios from 'axios';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
@@ -23,26 +27,171 @@ interface Question {
   answer: string;
   category: string;
   job_description: string;
+  source?: string;
+  source_url?: string;
+  company?: string;
 }
 
 interface QuestionsResponse {
   technical: Question[];
   behavioral: Question[];
   situational: Question[];
+  web_sourced: Question[];
 }
 
 export default function HomeScreen() {
   const [jobDescription, setJobDescription] = useState('');
+  const [companyName, setCompanyName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [extracting, setExtracting] = useState(false);
   const [questions, setQuestions] = useState<QuestionsResponse | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<string>('technical');
+  const [selectedCategory, setSelectedCategory] = useState<string>('web_sourced');
   const [practiceMode, setPracticeMode] = useState(false);
   const [revealedAnswers, setRevealedAnswers] = useState<Set<string>>(new Set());
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+  const [uploadModalVisible, setUploadModalVisible] = useState(false);
+
+  const pickDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf'],
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setUploadModalVisible(false);
+        await extractTextFromFile(result.assets[0].uri, 'pdf');
+      }
+    } catch (error) {
+      console.error('Document picker error:', error);
+      Alert.alert('Error', 'Failed to pick document');
+    }
+  };
+
+  const pickImage = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (!permissionResult.granted) {
+        Alert.alert('Permission Required', 'Please grant camera roll access to upload images');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setUploadModalVisible(false);
+        const asset = result.assets[0];
+        if (asset.base64) {
+          await extractTextFromBase64(asset.base64);
+        } else if (asset.uri) {
+          await extractTextFromFile(asset.uri, 'image');
+        }
+      }
+    } catch (error) {
+      console.error('Image picker error:', error);
+      Alert.alert('Error', 'Failed to pick image');
+    }
+  };
+
+  const takePhoto = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+      
+      if (!permissionResult.granted) {
+        Alert.alert('Permission Required', 'Please grant camera access to take photos');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: false,
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setUploadModalVisible(false);
+        const asset = result.assets[0];
+        if (asset.base64) {
+          await extractTextFromBase64(asset.base64);
+        }
+      }
+    } catch (error) {
+      console.error('Camera error:', error);
+      Alert.alert('Error', 'Failed to take photo');
+    }
+  };
+
+  const extractTextFromBase64 = async (base64: string) => {
+    setExtracting(true);
+    try {
+      const formData = new FormData();
+      formData.append('image_base64', base64);
+
+      const response = await axios.post(`${API_URL}/api/extract-text-base64`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      if (response.data.extracted_text) {
+        setJobDescription(response.data.extracted_text);
+        Alert.alert('Success', 'Text extracted from image!');
+      }
+    } catch (error: any) {
+      console.error('Text extraction error:', error);
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to extract text');
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const extractTextFromFile = async (uri: string, type: 'pdf' | 'image') => {
+    setExtracting(true);
+    try {
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      if (!fileInfo.exists) {
+        throw new Error('File not found');
+      }
+
+      // Read file as base64
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      // Create form data
+      const formData = new FormData();
+      const filename = type === 'pdf' ? 'document.pdf' : 'image.jpg';
+      const mimeType = type === 'pdf' ? 'application/pdf' : 'image/jpeg';
+
+      formData.append('file', {
+        uri: uri,
+        name: filename,
+        type: mimeType,
+      } as any);
+
+      const response = await axios.post(`${API_URL}/api/extract-text`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      if (response.data.extracted_text) {
+        setJobDescription(response.data.extracted_text);
+        Alert.alert('Success', `Text extracted from ${type}!`);
+      }
+    } catch (error: any) {
+      console.error('File extraction error:', error);
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to extract text');
+    } finally {
+      setExtracting(false);
+    }
+  };
 
   const generateQuestions = async () => {
     if (!jobDescription.trim()) {
-      Alert.alert('Error', 'Please enter a job description or role');
+      Alert.alert('Error', 'Please enter a job description or upload a file');
       return;
     }
 
@@ -53,8 +202,16 @@ export default function HomeScreen() {
     try {
       const response = await axios.post(`${API_URL}/api/generate-questions`, {
         job_description: jobDescription,
+        company_name: companyName.trim() || null,
       });
       setQuestions(response.data);
+      
+      // Default to web_sourced if available, otherwise technical
+      if (response.data.web_sourced && response.data.web_sourced.length > 0) {
+        setSelectedCategory('web_sourced');
+      } else {
+        setSelectedCategory('technical');
+      }
     } catch (error: any) {
       console.error('Error generating questions:', error);
       Alert.alert('Error', error.response?.data?.detail || 'Failed to generate questions');
@@ -83,6 +240,9 @@ export default function HomeScreen() {
         answer: question.answer,
         category: question.category,
         job_description: question.job_description,
+        source: question.source,
+        source_url: question.source_url,
+        company: question.company,
       });
       Alert.alert('Success', 'Question saved to favorites!');
     } catch (error: any) {
@@ -98,12 +258,13 @@ export default function HomeScreen() {
   };
 
   const categories = [
-    { key: 'technical', label: 'Technical', icon: 'code-slash' },
-    { key: 'behavioral', label: 'Behavioral', icon: 'people' },
-    { key: 'situational', label: 'Situational', icon: 'bulb' },
+    { key: 'web_sourced', label: 'Real Questions', icon: 'globe', color: '#4CAF50' },
+    { key: 'technical', label: 'Technical', icon: 'code-slash', color: '#6c63ff' },
+    { key: 'behavioral', label: 'Behavioral', icon: 'people', color: '#FF9800' },
+    { key: 'situational', label: 'Situational', icon: 'bulb', color: '#2196F3' },
   ];
 
-  const currentQuestions = questions ? questions[selectedCategory as keyof QuestionsResponse] : [];
+  const currentQuestions = questions ? questions[selectedCategory as keyof QuestionsResponse] || [] : [];
 
   return (
     <SafeAreaView style={styles.container}>
@@ -119,15 +280,46 @@ export default function HomeScreen() {
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>Interview Prep</Text>
-            <Text style={styles.subtitle}>Get ready for your dream job</Text>
+            <Text style={styles.subtitle}>Get real questions from reliable sources</Text>
           </View>
 
-          {/* Input Section */}
+          {/* Company Name Input */}
           <View style={styles.inputSection}>
-            <Text style={styles.inputLabel}>Job Description or Role</Text>
+            <Text style={styles.inputLabel}>Company Name (Optional)</Text>
+            <TextInput
+              style={styles.companyInput}
+              placeholder="e.g., Google, Amazon, Meta..."
+              placeholderTextColor="#666"
+              value={companyName}
+              onChangeText={setCompanyName}
+            />
+            <Text style={styles.inputHint}>
+              <Ionicons name="information-circle" size={14} color="#4CAF50" /> Enter company name to search for real interview questions from Glassdoor, Indeed, etc.
+            </Text>
+          </View>
+
+          {/* Job Description Input */}
+          <View style={styles.inputSection}>
+            <View style={styles.inputHeader}>
+              <Text style={styles.inputLabel}>Job Description</Text>
+              <TouchableOpacity
+                style={styles.uploadButton}
+                onPress={() => setUploadModalVisible(true)}
+                disabled={extracting}
+              >
+                {extracting ? (
+                  <ActivityIndicator size="small" color="#6c63ff" />
+                ) : (
+                  <>
+                    <Ionicons name="cloud-upload" size={18} color="#6c63ff" />
+                    <Text style={styles.uploadButtonText}>Upload</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
             <TextInput
               style={styles.textInput}
-              placeholder="e.g., Senior React Developer at a fintech startup..."
+              placeholder="Paste job description here or upload a PDF/image..."
               placeholderTextColor="#666"
               multiline
               numberOfLines={4}
@@ -155,8 +347,8 @@ export default function HomeScreen() {
           {loading && (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#6c63ff" />
-              <Text style={styles.loadingText}>Generating interview questions...</Text>
-              <Text style={styles.loadingSubtext}>This may take a few seconds</Text>
+              <Text style={styles.loadingText}>Searching for real questions...</Text>
+              <Text style={styles.loadingSubtext}>Checking Glassdoor, Indeed, LeetCode & more</Text>
             </View>
           )}
 
@@ -186,84 +378,188 @@ export default function HomeScreen() {
               </View>
 
               {/* Category Tabs */}
-              <View style={styles.categoryTabs}>
-                {categories.map((cat) => (
-                  <TouchableOpacity
-                    key={cat.key}
-                    style={[
-                      styles.categoryTab,
-                      selectedCategory === cat.key && styles.categoryTabActive,
-                    ]}
-                    onPress={() => setSelectedCategory(cat.key)}
-                  >
-                    <Ionicons
-                      name={cat.icon as any}
-                      size={18}
-                      color={selectedCategory === cat.key ? '#fff' : '#888'}
-                    />
-                    <Text
-                      style={[
-                        styles.categoryTabText,
-                        selectedCategory === cat.key && styles.categoryTabTextActive,
-                      ]}
-                    >
-                      {cat.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {/* Questions List */}
-              <View style={styles.questionsList}>
-                {currentQuestions.map((q, index) => (
-                  <View key={q.id} style={styles.questionCard}>
-                    <View style={styles.questionHeader}>
-                      <View style={styles.questionNumber}>
-                        <Text style={styles.questionNumberText}>{index + 1}</Text>
-                      </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
+                <View style={styles.categoryTabs}>
+                  {categories.map((cat) => {
+                    const count = questions[cat.key as keyof QuestionsResponse]?.length || 0;
+                    return (
                       <TouchableOpacity
-                        style={styles.favoriteButton}
-                        onPress={() => saveToFavorites(q)}
-                        disabled={savingIds.has(q.id)}
-                      >
-                        {savingIds.has(q.id) ? (
-                          <ActivityIndicator size="small" color="#6c63ff" />
-                        ) : (
-                          <Ionicons name="heart-outline" size={22} color="#6c63ff" />
-                        )}
-                      </TouchableOpacity>
-                    </View>
-                    <Text style={styles.questionText}>{q.question}</Text>
-
-                    {practiceMode ? (
-                      <TouchableOpacity
-                        style={styles.revealButton}
-                        onPress={() => toggleAnswer(q.id)}
+                        key={cat.key}
+                        style={[
+                          styles.categoryTab,
+                          selectedCategory === cat.key && { backgroundColor: cat.color, borderColor: cat.color },
+                        ]}
+                        onPress={() => setSelectedCategory(cat.key)}
                       >
                         <Ionicons
-                          name={revealedAnswers.has(q.id) ? 'eye' : 'eye-off'}
-                          size={18}
-                          color="#6c63ff"
+                          name={cat.icon as any}
+                          size={16}
+                          color={selectedCategory === cat.key ? '#fff' : '#888'}
                         />
-                        <Text style={styles.revealButtonText}>
-                          {revealedAnswers.has(q.id) ? 'Hide Answer' : 'Show Answer'}
+                        <Text
+                          style={[
+                            styles.categoryTabText,
+                            selectedCategory === cat.key && styles.categoryTabTextActive,
+                          ]}
+                        >
+                          {cat.label}
                         </Text>
+                        <View style={[
+                          styles.countBadge,
+                          selectedCategory === cat.key && styles.countBadgeActive
+                        ]}>
+                          <Text style={[
+                            styles.countText,
+                            selectedCategory === cat.key && styles.countTextActive
+                          ]}>{count}</Text>
+                        </View>
                       </TouchableOpacity>
-                    ) : null}
+                    );
+                  })}
+                </View>
+              </ScrollView>
 
-                    {(!practiceMode || revealedAnswers.has(q.id)) && (
-                      <View style={styles.answerContainer}>
-                        <Text style={styles.answerLabel}>Sample Answer:</Text>
-                        <Text style={styles.answerText}>{q.answer}</Text>
+              {/* Source Info for Web Questions */}
+              {selectedCategory === 'web_sourced' && currentQuestions.length > 0 && (
+                <View style={styles.sourceInfo}>
+                  <Ionicons name="checkmark-shield" size={16} color="#4CAF50" />
+                  <Text style={styles.sourceInfoText}>
+                    Real questions from verified sources
+                  </Text>
+                </View>
+              )}
+
+              {/* Questions List */}
+              {currentQuestions.length === 0 ? (
+                <View style={styles.emptyCategory}>
+                  <Ionicons name="search" size={48} color="#444" />
+                  <Text style={styles.emptyCategoryText}>
+                    {selectedCategory === 'web_sourced'
+                      ? 'No real questions found. Try adding a company name.'
+                      : 'No questions in this category.'}
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.questionsList}>
+                  {currentQuestions.map((q, index) => (
+                    <View key={q.id} style={styles.questionCard}>
+                      <View style={styles.questionHeader}>
+                        <View style={styles.questionNumber}>
+                          <Text style={styles.questionNumberText}>{index + 1}</Text>
+                        </View>
+                        <View style={styles.questionMeta}>
+                          {q.source === 'web_search' && q.source_url && (
+                            <View style={styles.sourceBadge}>
+                              <Ionicons name="globe" size={12} color="#4CAF50" />
+                              <Text style={styles.sourceText}>{q.source_url}</Text>
+                            </View>
+                          )}
+                        </View>
+                        <TouchableOpacity
+                          style={styles.favoriteButton}
+                          onPress={() => saveToFavorites(q)}
+                          disabled={savingIds.has(q.id)}
+                        >
+                          {savingIds.has(q.id) ? (
+                            <ActivityIndicator size="small" color="#6c63ff" />
+                          ) : (
+                            <Ionicons name="heart-outline" size={22} color="#6c63ff" />
+                          )}
+                        </TouchableOpacity>
                       </View>
-                    )}
-                  </View>
-                ))}
-              </View>
+                      <Text style={styles.questionText}>{q.question}</Text>
+
+                      {practiceMode ? (
+                        <TouchableOpacity
+                          style={styles.revealButton}
+                          onPress={() => toggleAnswer(q.id)}
+                        >
+                          <Ionicons
+                            name={revealedAnswers.has(q.id) ? 'eye' : 'eye-off'}
+                            size={18}
+                            color="#6c63ff"
+                          />
+                          <Text style={styles.revealButtonText}>
+                            {revealedAnswers.has(q.id) ? 'Hide Answer' : 'Show Answer'}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+
+                      {(!practiceMode || revealedAnswers.has(q.id)) && (
+                        <View style={styles.answerContainer}>
+                          <Text style={styles.answerLabel}>
+                            {q.source === 'web_search' ? 'Suggested Approach:' : 'Sample Answer:'}
+                          </Text>
+                          <Text style={styles.answerText}>{q.answer}</Text>
+                        </View>
+                      )}
+                    </View>
+                  ))}
+                </View>
+              )}
             </View>
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Upload Modal */}
+      <Modal
+        visible={uploadModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setUploadModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setUploadModalVisible(false)}
+        >
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Upload Job Description</Text>
+            <Text style={styles.modalSubtitle}>Extract text from PDF or image</Text>
+
+            <TouchableOpacity style={styles.modalOption} onPress={pickDocument}>
+              <View style={[styles.modalIconContainer, { backgroundColor: '#FF573320' }]}>
+                <Ionicons name="document-text" size={24} color="#FF5733" />
+              </View>
+              <View style={styles.modalOptionText}>
+                <Text style={styles.modalOptionTitle}>Upload PDF</Text>
+                <Text style={styles.modalOptionDesc}>Select a PDF document</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#666" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.modalOption} onPress={pickImage}>
+              <View style={[styles.modalIconContainer, { backgroundColor: '#4CAF5020' }]}>
+                <Ionicons name="image" size={24} color="#4CAF50" />
+              </View>
+              <View style={styles.modalOptionText}>
+                <Text style={styles.modalOptionTitle}>Choose Image</Text>
+                <Text style={styles.modalOptionDesc}>Select from gallery</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#666" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.modalOption} onPress={takePhoto}>
+              <View style={[styles.modalIconContainer, { backgroundColor: '#2196F320' }]}>
+                <Ionicons name="camera" size={24} color="#2196F3" />
+              </View>
+              <View style={styles.modalOptionText}>
+                <Text style={styles.modalOptionTitle}>Take Photo</Text>
+                <Text style={styles.modalOptionDesc}>Capture job posting</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#666" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.modalCancel}
+              onPress={() => setUploadModalVisible(false)}
+            >
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -284,7 +580,7 @@ const styles = StyleSheet.create({
     paddingBottom: 100,
   },
   header: {
-    marginBottom: 24,
+    marginBottom: 20,
   },
   title: {
     fontSize: 32,
@@ -294,16 +590,51 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 16,
-    color: '#888',
+    color: '#4CAF50',
   },
   inputSection: {
-    marginBottom: 24,
+    marginBottom: 20,
+  },
+  inputHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   inputLabel: {
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
-    marginBottom: 12,
+    marginBottom: 8,
+  },
+  inputHint: {
+    fontSize: 13,
+    color: '#888',
+    marginTop: 8,
+    lineHeight: 18,
+  },
+  companyInput: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    color: '#fff',
+    borderWidth: 1,
+    borderColor: '#2d2d44',
+  },
+  uploadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(108, 99, 255, 0.15)',
+    borderRadius: 8,
+  },
+  uploadButtonText: {
+    color: '#6c63ff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   textInput: {
     backgroundColor: '#1a1a2e',
@@ -344,7 +675,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   loadingSubtext: {
-    color: '#888',
+    color: '#4CAF50',
     fontSize: 14,
     marginTop: 8,
   },
@@ -389,27 +720,23 @@ const styles = StyleSheet.create({
   toggleKnobActive: {
     transform: [{ translateX: 22 }],
   },
+  categoryScroll: {
+    marginBottom: 16,
+  },
   categoryTabs: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 20,
   },
   categoryTab: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: 6,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
     backgroundColor: '#1a1a2e',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#2d2d44',
-  },
-  categoryTabActive: {
-    backgroundColor: '#6c63ff',
-    borderColor: '#6c63ff',
   },
   categoryTabText: {
     fontSize: 13,
@@ -418,6 +745,48 @@ const styles = StyleSheet.create({
   },
   categoryTabTextActive: {
     color: '#fff',
+  },
+  countBadge: {
+    backgroundColor: '#2d2d44',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginLeft: 4,
+  },
+  countBadgeActive: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  countText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#888',
+  },
+  countTextActive: {
+    color: '#fff',
+  },
+  sourceInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  sourceInfoText: {
+    color: '#4CAF50',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  emptyCategory: {
+    alignItems: 'center',
+    padding: 40,
+  },
+  emptyCategoryText: {
+    color: '#666',
+    fontSize: 14,
+    marginTop: 16,
+    textAlign: 'center',
   },
   questionsList: {
     gap: 16,
@@ -431,8 +800,7 @@ const styles = StyleSheet.create({
   },
   questionHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     marginBottom: 12,
   },
   questionNumber: {
@@ -447,6 +815,25 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  questionMeta: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  sourceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    alignSelf: 'flex-start',
+  },
+  sourceText: {
+    color: '#4CAF50',
+    fontSize: 11,
+    fontWeight: '500',
   },
   favoriteButton: {
     padding: 8,
@@ -492,5 +879,67 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#ccc',
     lineHeight: 22,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#1a1a2e',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: 40,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#888',
+    marginBottom: 24,
+  },
+  modalOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2d2d44',
+  },
+  modalIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalOptionText: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  modalOptionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  modalOptionDesc: {
+    fontSize: 13,
+    color: '#888',
+    marginTop: 2,
+  },
+  modalCancel: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    marginTop: 8,
+  },
+  modalCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ff4757',
   },
 });
