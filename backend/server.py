@@ -97,48 +97,101 @@ class ExtractTextResponse(BaseModel):
     source_type: str  # 'pdf' or 'image'
 
 
-async def search_real_interview_questions(company_name: str, job_title: str) -> List[dict]:
+def search_with_serpapi(query: str) -> List[dict]:
     """
-    Search for real interview questions from the web using Gemini with grounding.
-    Returns questions from sources like Glassdoor, Indeed, LeetCode, etc.
+    Search Google using SerpAPI and return organic results.
     """
     try:
+        if not SERPAPI_KEY:
+            logger.warning("SERPAPI_KEY not set, skipping web search")
+            return []
+            
+        search = GoogleSearch({
+            "q": query,
+            "api_key": SERPAPI_KEY,
+            "num": 10
+        })
+        results = search.get_dict()
+        return results.get("organic_results", [])
+    except Exception as e:
+        logger.error(f"SerpAPI search error: {e}")
+        return []
+
+
+async def search_real_interview_questions(company_name: str, job_title: str) -> List[dict]:
+    """
+    Search for REAL interview questions from the web using SerpAPI + Gemini.
+    1. SerpAPI searches Google for real interview questions
+    2. Gemini extracts and formats the questions from search results
+    """
+    try:
+        # Step 1: Search Google for real interview questions
+        search_queries = [
+            f"{company_name} {job_title} interview questions Glassdoor",
+            f"{company_name} interview questions site:glassdoor.com OR site:indeed.com",
+        ]
+        
+        all_results = []
+        for query in search_queries:
+            results = search_with_serpapi(query)
+            all_results.extend(results[:5])  # Take top 5 from each query
+        
+        if not all_results:
+            logger.info("No SerpAPI results found, falling back to AI generation")
+            return await fallback_ai_questions(company_name, job_title)
+        
+        # Step 2: Extract snippets and titles from search results
+        search_content = []
+        for result in all_results:
+            title = result.get("title", "")
+            snippet = result.get("snippet", "")
+            link = result.get("link", "")
+            source = result.get("displayed_link", "").split("/")[0] if result.get("displayed_link") else "Web"
+            
+            if snippet:
+                search_content.append({
+                    "title": title,
+                    "snippet": snippet,
+                    "source": source,
+                    "url": link
+                })
+        
+        logger.info(f"Found {len(search_content)} search results for {company_name} {job_title}")
+        
+        # Step 3: Use Gemini to extract actual questions from the search results
         chat = LlmChat(
             api_key=GEMINI_API_KEY,
-            session_id=f"web-search-{uuid.uuid4()}",
-            system_message="You are a research assistant that finds real interview questions from reliable sources."
+            session_id=f"extract-{uuid.uuid4()}",
+            system_message="You are an expert at extracting interview questions from search results."
         ).with_model("gemini", "gemini-2.5-flash")
         
-        search_prompt = f"""Search the web for REAL interview questions asked at {company_name} for {job_title} positions.
+        search_text = json.dumps(search_content, indent=2)
+        
+        extract_prompt = f"""From these REAL Google search results about {company_name} {job_title} interviews, extract actual interview questions that were mentioned.
 
-Look for questions from these sources:
-- Glassdoor interview reviews
-- Indeed interview questions
-- LeetCode discuss (for technical roles)
-- Blind app discussions
-- Company-specific interview prep sites
+Search Results:
+{search_text}
 
-For each question found, provide:
-1. The actual question asked
-2. A suggested answer approach
-3. The source (website name)
-4. Category (technical, behavioral, or situational)
+Extract REAL questions mentioned in the snippets. For each question:
+1. Extract the actual question (not made up)
+2. Provide a suggested answer approach
+3. Note the source website
+4. Categorize as technical, behavioral, or situational
 
-Return ONLY a valid JSON array with this format (no markdown, no code blocks):
+Return ONLY a valid JSON array (no markdown):
 [
   {{
-    "question": "Actual interview question from the source",
-    "answer": "Suggested answer approach",
-    "source": "Source website name",
+    "question": "The actual question from the search result",
+    "answer": "Suggested approach to answer this question",
+    "source": "Source website (e.g., Glassdoor, Indeed)",
     "category": "technical|behavioral|situational"
   }}
 ]
 
-Find at least 6-8 real questions if available. If you cannot find specific questions for this company, search for similar companies in the same industry."""
+Only include questions that are actually mentioned or implied in the search results. If a snippet mentions "Tell me about yourself" as a common question, include it. Be accurate to what's in the results."""
 
-        response = await chat.send_message(UserMessage(text=search_prompt))
+        response = await chat.send_message(UserMessage(text=extract_prompt))
         
-        # Clean and parse response
         content = response.strip()
         if content.startswith("```"):
             content = content.split("\n", 1)[1]
@@ -146,19 +199,55 @@ Find at least 6-8 real questions if available. If you cannot find specific quest
                 content = content.rsplit("```", 1)[0]
             content = content.strip()
         
-        # Try to find JSON array in response
         json_match = re.search(r'\[.*\]', content, re.DOTALL)
         if json_match:
             content = json_match.group()
         
-        # Clean control characters that might break JSON parsing
-        content = re.sub(r'[\x00-\x1f\x7f-\x9f]', ' ', content)
+        questions = json.loads(content, strict=False)
         
-        questions = json.loads(content)
+        # Mark these as real web-sourced questions
+        for q in questions:
+            q["is_real"] = True
+            
         return questions if isinstance(questions, list) else []
         
     except Exception as e:
-        logger.error(f"Web search error: {e}")
+        logger.error(f"Real web search error: {e}")
+        return await fallback_ai_questions(company_name, job_title)
+
+
+async def fallback_ai_questions(company_name: str, job_title: str) -> List[dict]:
+    """
+    Fallback to AI-generated questions if web search fails.
+    """
+    try:
+        chat = LlmChat(
+            api_key=GEMINI_API_KEY,
+            session_id=f"fallback-{uuid.uuid4()}",
+            system_message="You are an interview coach."
+        ).with_model("gemini", "gemini-2.5-flash")
+        
+        prompt = f"""Generate 6 realistic interview questions that are commonly asked at {company_name} for {job_title} positions.
+
+Return ONLY a valid JSON array:
+[
+  {{"question": "...", "answer": "...", "source": "AI Generated", "category": "technical|behavioral|situational"}}
+]"""
+
+        response = await chat.send_message(UserMessage(text=prompt))
+        content = response.strip()
+        
+        if content.startswith("```"):
+            content = content.split("\n", 1)[1]
+            if content.endswith("```"):
+                content = content.rsplit("```", 1)[0]
+        
+        json_match = re.search(r'\[.*\]', content, re.DOTALL)
+        if json_match:
+            content = json_match.group()
+            
+        return json.loads(content, strict=False)
+    except:
         return []
 
 
