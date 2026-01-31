@@ -32,16 +32,26 @@ interface Question {
   company?: string;
 }
 
+interface JobAnalysis {
+  company_name: string | null;
+  job_title: string;
+  industry: string;
+  seniority_level: string;
+  key_skills: string[];
+  job_type: string;
+  search_terms: string[];
+}
+
 interface QuestionsResponse {
   technical: Question[];
   behavioral: Question[];
   situational: Question[];
   web_sourced: Question[];
+  job_analysis: JobAnalysis | null;
 }
 
 export default function HomeScreen() {
   const [jobDescription, setJobDescription] = useState('');
-  const [companyName, setCompanyName] = useState('');
   const [loading, setLoading] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [questions, setQuestions] = useState<QuestionsResponse | null>(null);
@@ -157,12 +167,6 @@ export default function HomeScreen() {
         throw new Error('File not found');
       }
 
-      // Read file as base64
-      const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      // Create form data
       const formData = new FormData();
       const filename = type === 'pdf' ? 'document.pdf' : 'image.jpg';
       const mimeType = type === 'pdf' ? 'application/pdf' : 'image/jpeg';
@@ -202,7 +206,6 @@ export default function HomeScreen() {
     try {
       const response = await axios.post(`${API_URL}/api/generate-questions`, {
         job_description: jobDescription,
-        company_name: companyName.trim() || null,
       });
       setQuestions(response.data);
       
@@ -265,6 +268,7 @@ export default function HomeScreen() {
   ];
 
   const currentQuestions = questions ? questions[selectedCategory as keyof QuestionsResponse] || [] : [];
+  const jobAnalysis = questions?.job_analysis;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -280,22 +284,7 @@ export default function HomeScreen() {
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>Interview Prep</Text>
-            <Text style={styles.subtitle}>Get real questions from reliable sources</Text>
-          </View>
-
-          {/* Company Name Input */}
-          <View style={styles.inputSection}>
-            <Text style={styles.inputLabel}>Company Name (Optional)</Text>
-            <TextInput
-              style={styles.companyInput}
-              placeholder="e.g., Google, Amazon, Meta..."
-              placeholderTextColor="#666"
-              value={companyName}
-              onChangeText={setCompanyName}
-            />
-            <Text style={styles.inputHint}>
-              <Ionicons name="information-circle" size={14} color="#4CAF50" /> Enter company name to search for real interview questions from Glassdoor, Indeed, etc.
-            </Text>
+            <Text style={styles.subtitle}>AI analyzes your job description automatically</Text>
           </View>
 
           {/* Job Description Input */}
@@ -319,14 +308,19 @@ export default function HomeScreen() {
             </View>
             <TextInput
               style={styles.textInput}
-              placeholder="Paste job description here or upload a PDF/image..."
-              placeholderTextColor="#666"
+              placeholder="Paste job description here or upload a PDF/image...
+
+Example: 'Software Engineer at Google - looking for candidates with 3+ years React experience...'"
+              placeholderTextColor="#555"
               multiline
-              numberOfLines={4}
+              numberOfLines={6}
               value={jobDescription}
               onChangeText={setJobDescription}
               textAlignVertical="top"
             />
+            <Text style={styles.inputHint}>
+              <Ionicons name="sparkles" size={14} color="#6c63ff" /> AI will automatically detect company, role, skills & find relevant questions
+            </Text>
             <TouchableOpacity
               style={[styles.generateButton, loading && styles.generateButtonDisabled]}
               onPress={generateQuestions}
@@ -336,8 +330,8 @@ export default function HomeScreen() {
                 <ActivityIndicator color="#fff" />
               ) : (
                 <>
-                  <Ionicons name="sparkles" size={20} color="#fff" />
-                  <Text style={styles.generateButtonText}>Generate Questions</Text>
+                  <Ionicons name="search" size={20} color="#fff" />
+                  <Text style={styles.generateButtonText}>Analyze & Generate Questions</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -347,8 +341,54 @@ export default function HomeScreen() {
           {loading && (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#6c63ff" />
-              <Text style={styles.loadingText}>Searching for real questions...</Text>
-              <Text style={styles.loadingSubtext}>Checking Glassdoor, Indeed, LeetCode & more</Text>
+              <Text style={styles.loadingText}>Analyzing job description...</Text>
+              <Text style={styles.loadingSubtext}>Extracting company, role & searching for questions</Text>
+            </View>
+          )}
+
+          {/* Job Analysis Card */}
+          {jobAnalysis && !loading && (
+            <View style={styles.analysisCard}>
+              <View style={styles.analysisHeader}>
+                <Ionicons name="analytics" size={20} color="#6c63ff" />
+                <Text style={styles.analysisTitle}>Detected Information</Text>
+              </View>
+              <View style={styles.analysisGrid}>
+                {jobAnalysis.company_name && (
+                  <View style={styles.analysisItem}>
+                    <Ionicons name="business" size={16} color="#4CAF50" />
+                    <Text style={styles.analysisLabel}>Company</Text>
+                    <Text style={styles.analysisValue}>{jobAnalysis.company_name}</Text>
+                  </View>
+                )}
+                <View style={styles.analysisItem}>
+                  <Ionicons name="briefcase" size={16} color="#2196F3" />
+                  <Text style={styles.analysisLabel}>Role</Text>
+                  <Text style={styles.analysisValue}>{jobAnalysis.job_title}</Text>
+                </View>
+                <View style={styles.analysisItem}>
+                  <Ionicons name="trending-up" size={16} color="#FF9800" />
+                  <Text style={styles.analysisLabel}>Level</Text>
+                  <Text style={styles.analysisValue}>{jobAnalysis.seniority_level}</Text>
+                </View>
+                <View style={styles.analysisItem}>
+                  <Ionicons name="layers" size={16} color="#9C27B0" />
+                  <Text style={styles.analysisLabel}>Industry</Text>
+                  <Text style={styles.analysisValue}>{jobAnalysis.industry}</Text>
+                </View>
+              </View>
+              {jobAnalysis.key_skills && jobAnalysis.key_skills.length > 0 && (
+                <View style={styles.skillsContainer}>
+                  <Text style={styles.skillsLabel}>Key Skills:</Text>
+                  <View style={styles.skillsTags}>
+                    {jobAnalysis.key_skills.slice(0, 5).map((skill, index) => (
+                      <View key={index} style={styles.skillTag}>
+                        <Text style={styles.skillText}>{skill}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )}
             </View>
           )}
 
@@ -381,7 +421,8 @@ export default function HomeScreen() {
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
                 <View style={styles.categoryTabs}>
                   {categories.map((cat) => {
-                    const count = questions[cat.key as keyof QuestionsResponse]?.length || 0;
+                    const questionList = questions[cat.key as keyof QuestionsResponse];
+                    const count = Array.isArray(questionList) ? questionList.length : 0;
                     return (
                       <TouchableOpacity
                         key={cat.key}
@@ -420,28 +461,28 @@ export default function HomeScreen() {
               </ScrollView>
 
               {/* Source Info for Web Questions */}
-              {selectedCategory === 'web_sourced' && currentQuestions.length > 0 && (
+              {selectedCategory === 'web_sourced' && Array.isArray(currentQuestions) && currentQuestions.length > 0 && (
                 <View style={styles.sourceInfo}>
-                  <Ionicons name="checkmark-shield" size={16} color="#4CAF50" />
+                  <Ionicons name="information-circle" size={16} color="#FF9800" />
                   <Text style={styles.sourceInfoText}>
-                    Real questions from verified sources
+                    Questions based on Gemini AI's knowledge of interview patterns
                   </Text>
                 </View>
               )}
 
               {/* Questions List */}
-              {currentQuestions.length === 0 ? (
+              {!Array.isArray(currentQuestions) || currentQuestions.length === 0 ? (
                 <View style={styles.emptyCategory}>
                   <Ionicons name="search" size={48} color="#444" />
                   <Text style={styles.emptyCategoryText}>
                     {selectedCategory === 'web_sourced'
-                      ? 'No real questions found. Try adding a company name.'
+                      ? 'No specific questions found for this role.'
                       : 'No questions in this category.'}
                   </Text>
                 </View>
               ) : (
                 <View style={styles.questionsList}>
-                  {currentQuestions.map((q, index) => (
+                  {currentQuestions.map((q: Question, index: number) => (
                     <View key={q.id} style={styles.questionCard}>
                       <View style={styles.questionHeader}>
                         <View style={styles.questionNumber}>
@@ -589,8 +630,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#4CAF50',
+    fontSize: 15,
+    color: '#888',
   },
   inputSection: {
     marginBottom: 20,
@@ -605,22 +646,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
-    marginBottom: 8,
   },
   inputHint: {
     fontSize: 13,
     color: '#888',
-    marginTop: 8,
+    marginTop: 10,
+    marginBottom: 16,
     lineHeight: 18,
-  },
-  companyInput: {
-    backgroundColor: '#1a1a2e',
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    color: '#fff',
-    borderWidth: 1,
-    borderColor: '#2d2d44',
   },
   uploadButton: {
     flexDirection: 'row',
@@ -640,12 +672,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1a2e',
     borderRadius: 12,
     padding: 16,
-    fontSize: 16,
+    fontSize: 15,
     color: '#fff',
-    minHeight: 120,
+    minHeight: 150,
     borderWidth: 1,
     borderColor: '#2d2d44',
-    marginBottom: 16,
   },
   generateButton: {
     backgroundColor: '#6c63ff',
@@ -675,9 +706,77 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   loadingSubtext: {
-    color: '#4CAF50',
+    color: '#888',
     fontSize: 14,
     marginTop: 8,
+  },
+  // Analysis Card
+  analysisCard: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#2d2d44',
+  },
+  analysisHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
+  analysisTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  analysisGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  analysisItem: {
+    width: '47%',
+    backgroundColor: '#0f0f1a',
+    borderRadius: 10,
+    padding: 12,
+    gap: 4,
+  },
+  analysisLabel: {
+    fontSize: 11,
+    color: '#888',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  analysisValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+    textTransform: 'capitalize',
+  },
+  skillsContainer: {
+    marginTop: 16,
+  },
+  skillsLabel: {
+    fontSize: 12,
+    color: '#888',
+    marginBottom: 8,
+  },
+  skillsTags: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  skillTag: {
+    backgroundColor: 'rgba(108, 99, 255, 0.15)',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+  },
+  skillText: {
+    fontSize: 13,
+    color: '#6c63ff',
+    fontWeight: '500',
   },
   questionsSection: {
     marginTop: 8,
@@ -768,15 +867,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    backgroundColor: 'rgba(255, 152, 0, 0.1)',
     borderRadius: 8,
     padding: 12,
     marginBottom: 16,
   },
   sourceInfoText: {
-    color: '#4CAF50',
-    fontSize: 13,
+    color: '#FF9800',
+    fontSize: 12,
     fontWeight: '500',
+    flex: 1,
   },
   emptyCategory: {
     alignItems: 'center',
