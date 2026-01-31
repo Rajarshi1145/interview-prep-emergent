@@ -247,7 +247,8 @@ Return ONLY a valid JSON array:
             content = json_match.group()
             
         return json.loads(content, strict=False)
-    except:
+    except Exception as e:
+        logger.error(f"Fallback AI questions error: {e}")
         return []
 
 
