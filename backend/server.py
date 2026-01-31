@@ -203,18 +203,8 @@ Respond ONLY with a valid JSON object (no markdown, no code blocks):
                 content = content.rsplit("```", 1)[0]
             content = content.strip()
         
-        # Clean control characters that might break JSON parsing
-        content = re.sub(r'[\x00-\x1f\x7f-\x9f]', ' ', content)
-        # Fix newlines in strings
-        content = content.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
-        # But restore actual newlines between JSON elements
-        content = re.sub(r'\\n\s*"', '\n"', content)
-        content = re.sub(r'\\n\s*\{', '\n{', content)
-        content = re.sub(r'\\n\s*\[', '\n[', content)
-        content = re.sub(r'\\n\s*\]', '\n]', content)
-        content = re.sub(r'\\n\s*\}', '\n}', content)
-        
-        return json.loads(content)
+        # Use strict=False to handle control characters
+        return json.loads(content, strict=False)
         
     except Exception as e:
         logger.error(f"AI generation error: {e}")
