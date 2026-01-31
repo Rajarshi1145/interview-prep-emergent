@@ -101,3 +101,132 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "Build an interview prep app for Android and iOS. User can upload a job description or role, and based on that get relevant interview questions and answers organized by categories (Technical, Behavioral, Situational). Features include save favorites and practice mode."
+
+backend:
+  - task: "Generate interview questions API"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+        - agent: "main"
+        - comment: "POST /api/generate-questions endpoint working with OpenAI GPT-4o integration"
+
+  - task: "Get favorites API"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+        - agent: "main"
+        - comment: "GET /api/favorites endpoint returns saved questions from MongoDB"
+
+  - task: "Add favorite API"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+        - agent: "main"
+        - comment: "POST /api/favorites saves questions to MongoDB"
+
+  - task: "Delete favorite API"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+        - agent: "main"
+        - comment: "DELETE /api/favorites/{id} needs testing"
+
+frontend:
+  - task: "Home screen with job description input"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/index.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+        - agent: "main"
+        - comment: "TextInput with Generate Questions button working"
+
+  - task: "Question generation and display"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/index.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+        - agent: "main"
+        - comment: "Questions displayed with categories, loading states working"
+
+  - task: "Practice mode toggle"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/index.tsx"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+        - working: true
+        - agent: "main"
+        - comment: "Practice mode hides/shows answers on toggle"
+
+  - task: "Save to favorites"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/index.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+        - agent: "main"
+        - comment: "Heart button saves question to favorites"
+
+  - task: "Favorites screen"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/favorites.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+        - agent: "main"
+        - comment: "Shows saved favorites with delete option"
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 1
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Delete favorite API"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+    - agent: "main"
+    - message: "MVP implementation complete. All core features working. Backend APIs tested via curl, frontend tested via screenshots. Need to test delete favorite API."
