@@ -67,22 +67,22 @@ export default function Favorites() {
   }
 
   return (
-    <div className="favorites">
+    <div className="favorites" data-testid="favorites-page">
       <div className="favorites-header">
         <h1>Favorites</h1>
         <p>{favorites.length} saved question{favorites.length !== 1 ? 's' : ''}</p>
       </div>
 
       {favorites.length === 0 ? (
-        <div className="favorites-empty">
+        <div className="favorites-empty" data-testid="favorites-empty">
           <Heart size={64} />
           <h3>No favorites yet</h3>
           <p>Save questions from the Prepare tab to review them later</p>
         </div>
       ) : (
-        <div className="favorites-list">
+        <div className="favorites-list" data-testid="favorites-list">
           {favorites.map((fav) => (
-            <div key={fav.id} className="fav-card">
+            <div key={fav.id} className="fav-card" data-testid={`fav-card-${fav.id}`}>
               <div className="fav-card-header">
                 <div className="fav-badges">
                   <span className="fav-category" style={{ backgroundColor: getCategoryColor(fav.category) + '20', color: getCategoryColor(fav.category) }}>
@@ -94,6 +94,7 @@ export default function Favorites() {
                 </div>
                 <button 
                   className="delete-btn"
+                  data-testid={`delete-fav-${fav.id}`}
                   onClick={() => removeFavorite(fav.id)}
                   disabled={deletingIds.has(fav.id)}
                 >
