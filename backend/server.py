@@ -453,7 +453,7 @@ Return ONLY JSON: [{{"question": "Tell me about a time...", "answer": "STAR appr
             if match:
                 content = match.group()
         return json.loads(content, strict=False)
-    except:
+    except Exception:
         return []
 
 
@@ -477,7 +477,7 @@ Return ONLY JSON: [{{"question": "What would you do if...", "answer": "suggested
             if match:
                 content = match.group()
         return json.loads(content, strict=False)
-    except:
+    except Exception:
         return []
 
 
