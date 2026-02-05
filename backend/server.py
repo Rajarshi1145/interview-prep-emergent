@@ -678,6 +678,133 @@ async def remove_favorite(favorite_id: str):
     return {"message": "Removed"}
 
 
+# ============== SSE STREAMING ENDPOINT ==============
+
+async def generate_questions_stream(job_description: str) -> AsyncGenerator[str, None]:
+    """Stream questions as they become available using SSE."""
+    
+    def format_sse(event: str, data: dict) -> str:
+        """Format data as SSE event."""
+        return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+    
+    def to_question_dict(q: dict, category: str, source: str, job_desc: str, company: str = None) -> dict:
+        """Convert question dict to serializable format."""
+        return {
+            "id": str(uuid.uuid4()),
+            "question": q.get("question", ""),
+            "answer": q.get("answer", ""),
+            "category": category,
+            "job_description": job_desc,
+            "source": source,
+            "source_url": q.get("source_url") or q.get("source"),
+            "company": company,
+            "skill_tag": q.get("skill_tag"),
+            "difficulty": q.get("difficulty", "medium")
+        }
+    
+    try:
+        # Step 1: Quick job analysis
+        yield format_sse("status", {"message": "Analyzing job description...", "phase": "analysis"})
+        
+        job_analysis = await analyze_job_fast(job_description)
+        
+        company = job_analysis.get("company_name")
+        title = job_analysis.get("job_title", "Professional")
+        seniority = job_analysis.get("seniority_level", "mid")
+        domain = job_analysis.get("domain", "business")
+        job_type = job_analysis.get("job_type", "general")
+        skills = job_analysis.get("technical_skills", [])
+        
+        # Get domain-specific pattern
+        domain_pattern = get_domain_pattern(domain, job_type)
+        
+        # Send job analysis immediately
+        yield format_sse("job_analysis", {
+            "company_name": job_analysis.get("company_name"),
+            "job_title": job_analysis.get("job_title") or "Professional",
+            "industry": job_analysis.get("industry") or "General",
+            "seniority_level": job_analysis.get("seniority_level") or "mid",
+            "key_skills": job_analysis.get("key_skills") or [],
+            "technical_skills": job_analysis.get("technical_skills") or [],
+            "soft_skills": job_analysis.get("soft_skills") or [],
+            "job_type": job_analysis.get("job_type") or "general",
+            "domain": job_analysis.get("domain") or "business"
+        })
+        
+        yield format_sse("status", {"message": "Generating questions...", "phase": "generating"})
+        
+        # Step 2: Run tasks in parallel but yield results as they complete
+        # Create tasks for parallel execution
+        skill_search_task = asyncio.create_task(parallel_skill_search(skills, seniority))
+        ai_questions_task = asyncio.create_task(generate_domain_questions(skills, seniority, title, domain_pattern, count=8))
+        behavioral_task = asyncio.create_task(generate_behavioral_quick(title, seniority))
+        situational_task = asyncio.create_task(generate_situational_quick(title, domain))
+        
+        company_search_task = None
+        if company:
+            company_search_task = asyncio.create_task(search_company_questions_parallel(company, title))
+        
+        # Yield behavioral questions as soon as they're ready
+        behavioral = await behavioral_task
+        if isinstance(behavioral, list) and behavioral:
+            yield format_sse("status", {"message": "Behavioral questions ready", "phase": "behavioral"})
+            for q in behavioral:
+                yield format_sse("question", to_question_dict(q, "behavioral", "ai_generated", job_description, company))
+        
+        # Yield situational questions
+        situational = await situational_task
+        if isinstance(situational, list) and situational:
+            yield format_sse("status", {"message": "Situational questions ready", "phase": "situational"})
+            for q in situational:
+                yield format_sse("question", to_question_dict(q, "situational", "ai_generated", job_description, company))
+        
+        # Yield AI-generated technical questions
+        ai_questions = await ai_questions_task
+        if isinstance(ai_questions, list) and ai_questions:
+            yield format_sse("status", {"message": "Technical questions ready", "phase": "technical"})
+            for q in ai_questions:
+                yield format_sse("question", to_question_dict(q, "technical", "ai_generated", job_description, company))
+        
+        # Process web search results
+        skill_search_results = await skill_search_task
+        if isinstance(skill_search_results, list) and skill_search_results:
+            yield format_sse("status", {"message": "Extracting real interview questions...", "phase": "web_search"})
+            real_questions = await extract_questions_with_links(skill_search_results, domain_pattern)
+            if isinstance(real_questions, list):
+                for q in real_questions:
+                    yield format_sse("question", to_question_dict(q, "technical", "web_search", job_description, company))
+        
+        # Process company-specific questions
+        if company_search_task:
+            company_search = await company_search_task
+            if isinstance(company_search, list) and company_search:
+                yield format_sse("status", {"message": f"Found {company} specific questions", "phase": "company"})
+                company_questions = await extract_questions_with_links(company_search, domain_pattern)
+                if isinstance(company_questions, list):
+                    for q in company_questions:
+                        yield format_sse("question", to_question_dict(q, "company_specific", "web_search", job_description, company))
+        
+        yield format_sse("complete", {"message": "All questions generated"})
+        
+    except Exception as e:
+        logger.error(f"Stream error: {e}")
+        yield format_sse("error", {"message": str(e)})
+
+
+@api_router.post("/generate-questions-stream")
+async def generate_questions_sse(request: GenerateQuestionsRequest):
+    """Stream questions using Server-Sent Events for real-time updates."""
+    return StreamingResponse(
+        generate_questions_stream(request.job_description),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
 app.include_router(api_router)
 app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
